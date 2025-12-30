@@ -1,23 +1,25 @@
 from flask import Flask, render_template, request, jsonify
+from instagrapi import Client
+from instagrapi.exceptions import ChallengeRequired, FeedbackRequired, PleaseWaitFewMinutes
 import threading
 import time
 import random
-import pyperclip
-import undetected_chromedriver as uc
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.keys import Keys
-from selenium.common.exceptions import TimeoutException
+import os
+from datetime import datetime
 
 app = Flask(__name__)
-app.secret_key = "sujal_hawk_pr_2025"
+app.secret_key = "sujal_hawk_instagrapi_2025"
 
-state = {"running": False, "logs": [], "start_time": None}
-cfg = {"sessionid": "", "gc_links": [], "message": "", "group_names": []}
+state = {"running": False, "sent": 0, "logs": [], "start_time": None}
+cfg = {"sessionid": "", "thread_id": 0, "messages": [], "group_name": "", "delay": 12, "cycle": 35, "break_sec": 40}
 
-driver = None
-wait = None
+# Undetected devices for rotation
+DEVICES = [
+    {"phone_manufacturer": "Google", "phone_model": "Pixel 8 Pro", "android_version": 15, "android_release": "15.0.0", "app_version": "323.0.0.46.109"},
+    {"phone_manufacturer": "Samsung", "phone_model": "SM-S928B", "android_version": 15, "android_release": "15.0.0", "app_version": "324.0.0.41.110"},
+    {"phone_manufacturer": "OnePlus", "phone_model": "PJZ110", "android_version": 15, "android_release": "15.0.0", "app_version": "322.0.0.40.108"},
+    {"phone_manufacturer": "Xiaomi", "phone_model": "23127PN0CC", "android_version": 15, "android_release": "15.0.0", "app_version": "325.0.0.42.111"},
+]
 
 def log(msg):
     entry = f"[{time.strftime('%H:%M:%S')}] {msg}"
@@ -25,94 +27,60 @@ def log(msg):
     if len(state["logs"]) > 500:
         state["logs"] = state["logs"][-500:]
 
-def handle_notification_popup():
-    try:
-        not_now = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[text()='Not Now']")))
-        not_now.click()
-        log("Notification popup closed")
-        time.sleep(1)
-    except TimeoutException:
-        pass
+def bomber():
+    cl = Client()
+    cl.delay_range = [8, 30]
+    device = random.choice(DEVICES)
+    cl.set_device(device)
+    cl.set_user_agent(f"Instagram {device['app_version']} Android (34/15.0.0; 480dpi; 1080x2340; {device['phone_manufacturer']}; {device['phone_model']}; raven; raven; en_US)")
 
-def send_message(link, message):
-    driver.get(link)
-    time.sleep(4 + random.uniform(0, 2))
-    handle_notification_popup()
     try:
-        box = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div[contenteditable='true'][role='textbox']")))
-        pyperclip.copy(message)
-        box.click()
-        box.send_keys(Keys.CONTROL + "v")
-        box.send_keys(Keys.ENTER)
-        log("Message sent")
-        time.sleep(2)
-        return True
+        cl.login_by_sessionid(cfg["sessionid"])
+        log("LOGIN SUCCESS — BOMBING SHURU")
     except Exception as e:
-        log(f"Message failed: {str(e)[:60]}")
-        return False
+        log(f"LOGIN FAILED → {str(e)[:80]} — CHECK SESSION ID")
+        return
 
-def change_group_name(link, new_name):
-    driver.get(link)
-    time.sleep(4)
-    handle_notification_popup()
-    try:
-        info = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "svg[aria-label='Conversation information']")))
-        info.find_element(By.XPATH, "..").click()
-        time.sleep(2)
-        change = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[text()='Change']")))
-        change.click()
-        time.sleep(1)
-        inp = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@aria-label='Group name']")))
-        inp.send_keys(Keys.CONTROL + "a")
-        inp.send_keys(Keys.DELETE)
-        inp.send_keys(new_name)
-        save = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[text()='Save']")))
-        save.click()
-        log(f"Group name changed → {new_name}")
-        time.sleep(2)
-        return True
-    except Exception as e:
-        log(f"Name change failed: {str(e)[:60]}")
-        return False
+    sent_in_cycle = 0
+    current_delay = cfg["delay"]
 
-def spammer():
-    global driver, wait
-    options = uc.ChromeOptions()
-    options.add_argument("--disable-notifications")
-    options.add_argument("--no-first-run")
-    options.add_argument("--no-default-browser-check")
-    options.add_argument("--disable-infobars")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument("--headless=new")  # Headless for Render
-
-    driver = uc.Chrome(options=options)
-    wait = WebDriverWait(driver, 15)
-
-    # Login
-    driver.get("https://www.instagram.com/")
-    time.sleep(3)
-    driver.add_cookie({
-        "name": "sessionid",
-        "value": cfg["sessionid"],
-        "domain": ".instagram.com",
-        "path": "/",
-    })
-    driver.refresh()
-    time.sleep(5)
-    log("Logged in successfully")
-
-    # Main loop
-    cycle = 0
     while state["running"]:
-        log(f"CYCLE {cycle + 1} START")
-        for idx, link in enumerate(cfg["gc_links"], start=1):
-            log(f"Opening GC {idx}")
-            if send_message(link, cfg["message"]):
-                new_name = cfg["group_names"][cycle % len(cfg["group_names"])]
-                change_group_name(link, new_name)
-        cycle += 1
-        log(f"CYCLE {cycle} COMPLETE — Waiting 90s...")
-        time.sleep(90)
+        try:
+            msg = random.choice(cfg["messages"])
+            cl.direct_send(msg, thread_ids=[cfg["thread_id"]])
+            sent_in_cycle += 1
+            state["sent"] += 1
+            log(f"SENT #{state['sent']} → {msg[:40]}")
+
+            if sent_in_cycle >= cfg["cycle"]:
+                if cfg["group_name"]:
+                    new_name = f"{cfg['group_name']} → {datetime.now().strftime('%I:%M:%S %p')}"
+                    try:
+                        cl.direct_thread_change_title(cfg["thread_id"], new_name)
+                        log(f"GROUP NAME CHANGED → {new_name}")
+                    except:
+                        try:
+                            cl.direct_thread_update_group_name(cfg["thread_id"], new_name)
+                            log(f"GROUP NAME CHANGED → {new_name}")
+                        except Exception as e:
+                            log(f"Name change failed → {str(e)[:50]}")
+
+                log(f"BREAK {cfg['break_sec']} SECONDS")
+                time.sleep(cfg["break_sec"])
+                sent_in_cycle = 0
+                current_delay = cfg["delay"]
+
+            time.sleep(current_delay + random.uniform(-2, 3))
+        except ChallengeRequired or FeedbackRequired:
+            log("Challenge/Feedback detected → skipping message")
+            time.sleep(30)
+        except PleaseWaitFewMinutes:
+            log("Rate limit → waiting 8 min")
+            time.sleep(480)
+        except Exception as e:
+            log(f"SEND FAILED → {str(e)[:60]}")
+            current_delay += 5
+            time.sleep(current_delay)
 
 @app.route("/")
 def index():
@@ -123,19 +91,18 @@ def start():
     global state
     state["running"] = False
     time.sleep(1)
-    state = {"running": True, "logs": [], "start_time": time.time()}
+    state = {"running": True, "sent": 0, "logs": ["BOMBING STARTED"], "start_time": time.time()}
 
     cfg["sessionid"] = request.form["sessionid"].strip()
-    cfg["gc_links"] = [x.strip() for x in request.form["gc_links"].split("\n") if x.strip()]
-    cfg["message"] = request.form["message"].strip()
-    cfg["group_names"] = [x.strip() for x in request.form["group_names"].split("\n") if x.strip()]
+    cfg["thread_id"] = int(request.form["thread_id"])
+    cfg["messages"] = [m.strip() for m in request.form["messages"].split("\n") if m.strip()]
+    cfg["group_name"] = request.form.get("group_name", "").strip()
+    cfg["delay"] = float(request.form.get("delay", "12"))
+    cfg["cycle"] = int(request.form.get("cycle", "35"))
+    cfg["break_sec"] = int(request.form.get("break_sec", "40"))
 
-    if len(cfg["gc_links"]) > 5:
-        cfg["gc_links"] = cfg["gc_links"][:5]  # Free tier limit
-        log("Limited to 5 GCs for free tier")
-
-    log("SPAMMER STARTED")
-    threading.Thread(target=spammer, daemon=True).start()
+    threading.Thread(target=bomber, daemon=True).start()
+    log("THREAD STARTED — WAIT FOR LOGIN")
 
     return jsonify({"ok": True})
 
@@ -155,6 +122,7 @@ def status():
         uptime = f"{h:02d}:{m:02d}:{s:02d}"
     return jsonify({
         "running": state["running"],
+        "sent": state["sent"],
         "uptime": uptime,
         "logs": state["logs"][-100:]
     })
