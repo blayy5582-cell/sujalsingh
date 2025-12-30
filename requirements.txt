@@ -1,0 +1,5 @@
+Flask==3.0.3
+gunicorn==23.0.0
+undetected-chromedriver==3.5.5
+selenium==4.16.0
+pyperclip==1.8.2
